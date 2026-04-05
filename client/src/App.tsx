@@ -70,9 +70,11 @@ function AppContent() {
     }
   }, [profiles, profileId]);
 
-  // Auto-create 2025 profile if none exist
+  // Auto-create 2025 profile if none exist (guard: only run once)
+  const [autoCreating, setAutoCreating] = useState(false);
   useEffect(() => {
-    if (profiles.length === 0 && profileId === 0) {
+    if (profiles.length === 0 && profileId === 0 && !autoCreating) {
+      setAutoCreating(true);
       apiRequest("POST", "/api/profiles", {
         taxYear: 2025,
         filingStatus: "married_filing_jointly",
@@ -84,7 +86,8 @@ function AppContent() {
         queryClient.invalidateQueries({ queryKey: ["/api/history"] });
       });
     }
-  }, [profiles, profileId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profiles.length]);
 
   const activeProfile = profiles.find((p: any) => p.id === profileId);
   const sortedProfiles = [...profiles].sort((a: any, b: any) => b.taxYear - a.taxYear);
