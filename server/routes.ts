@@ -119,6 +119,110 @@ export async function registerRoutes(
     res.json({ deleted: true });
   });
 
+  // ========== BACKFILL PRIOR YEAR (bulk-create a historical return in one shot) ==========
+  app.post("/api/backfill", (req, res) => {
+    const {
+      taxYear, filingStatus,
+      firstName1, lastName1, ssn1,
+      firstName2, lastName2, ssn2,
+      street, city, state, zip,
+      status, filedDate, confirmationNumber, notes,
+      income,      // [{category, source, amount, federalWithheld, stateWithheld}]
+      deductions,  // [{category, description, amount}]
+      credits,     // [{category, description, amount}]
+      dependents,  // [{firstName, lastName, ssn, relationship, dob}]
+    } = req.body;
+
+    if (!taxYear) return res.status(400).json({ error: "taxYear required" });
+
+    const existing = storage.getProfileByYear(taxYear);
+    if (existing) return res.status(409).json({ error: `A ${taxYear} return already exists`, profileId: existing.id });
+
+    const profile = storage.createProfile({
+      taxYear: parseInt(taxYear),
+      filingStatus: filingStatus || "married_filing_jointly",
+      firstName1: firstName1 || "", lastName1: lastName1 || "", ssn1: ssn1 || "",
+      dob1: "", occupation1: "",
+      firstName2: firstName2 || "", lastName2: lastName2 || "", ssn2: ssn2 || "",
+      dob2: "", occupation2: "",
+      street: street || "", apt: "", city: city || "", state: state || "", zip: zip || "",
+      bankRouting: "", bankAccount: "", accountType: "checking",
+      status: status || "accepted",
+      notes: notes || "",
+      filedDate: filedDate || "",
+      confirmationNumber: confirmationNumber || "",
+      createdAt: new Date().toISOString(),
+    });
+
+    initializeTaxCode(parseInt(taxYear));
+
+    // Insert income entries
+    if (Array.isArray(income)) {
+      for (const item of income) {
+        if (item.amount && parseFloat(item.amount) > 0) {
+          storage.createIncome({
+            profileId: profile.id,
+            category: item.category || "w2",
+            source: item.source || "",
+            amount: parseFloat(item.amount) || 0,
+            federalWithheld: parseFloat(item.federalWithheld) || 0,
+            stateWithheld: parseFloat(item.stateWithheld) || 0,
+            description: item.description || "",
+          });
+        }
+      }
+    }
+
+    // Insert deductions
+    if (Array.isArray(deductions)) {
+      for (const item of deductions) {
+        if (item.amount && parseFloat(item.amount) > 0) {
+          storage.createDeduction({
+            profileId: profile.id,
+            category: item.category || "charity",
+            description: item.description || "",
+            amount: parseFloat(item.amount) || 0,
+            isTaxDeductible: 1,
+          });
+        }
+      }
+    }
+
+    // Insert credits
+    if (Array.isArray(credits)) {
+      for (const item of credits) {
+        if (item.amount && parseFloat(item.amount) > 0) {
+          storage.createCredit({
+            profileId: profile.id,
+            category: item.category || "child_tax_credit",
+            description: item.description || "",
+            amount: parseFloat(item.amount) || 0,
+            dependentName: "",
+          });
+        }
+      }
+    }
+
+    // Insert dependents
+    if (Array.isArray(dependents)) {
+      for (const dep of dependents) {
+        if (dep.firstName) {
+          storage.createDependent({
+            profileId: profile.id,
+            firstName: dep.firstName || "",
+            lastName: dep.lastName || "",
+            ssn: dep.ssn || "",
+            relationship: dep.relationship || "child",
+            dob: dep.dob || "",
+            monthsLived: 12,
+          });
+        }
+      }
+    }
+
+    res.status(201).json({ profileId: profile.id, taxYear: profile.taxYear });
+  });
+
   // ========== YEAR ROLLOVER (start new tax year from prior year) ==========
   app.post("/api/profiles/:id/rollover", (req, res) => {
     const sourceProfile = storage.getProfile(parseInt(req.params.id));

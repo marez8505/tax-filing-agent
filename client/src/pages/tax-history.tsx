@@ -12,13 +12,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatPercent } from "@/lib/tax-helpers";
+import BackfillWizard from "@/pages/backfill-wizard";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
 } from "recharts";
 import {
   History, TrendingUp, Plus, ChevronRight, CheckCircle,
-  Clock, FileCheck, AlertCircle, PenLine, CalendarDays, RotateCcw
+  Clock, FileCheck, AlertCircle, PenLine, CalendarDays, RotateCcw, DatabaseBackup
 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
@@ -33,6 +34,7 @@ export default function TaxHistory({ activeProfileId, onSwitchYear }: { activePr
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ status: "in_progress", notes: "", filedDate: "", confirmationNumber: "" });
   const [rolloverTarget, setRolloverTarget] = useState<number | null>(null);
+  const [showBackfill, setShowBackfill] = useState(false);
 
   const { data: history = [], isLoading } = useQuery({
     queryKey: ["/api/history"],
@@ -126,13 +128,54 @@ export default function TaxHistory({ activeProfileId, onSwitchYear }: { activePr
         </Card>
       )}
 
+      {/* Backfill Banner — show when fewer than 3 prior years exist */}
+      {history.length < 4 && (
+        <Card className="border-dashed border-primary/30 bg-primary/[0.03]">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold text-sm flex items-center gap-2">
+                  <DatabaseBackup className="h-4 w-4 text-primary" />
+                  Seed Your Tax History (2022 – 2024)
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Enter summary data for prior years to unlock year-over-year charts and trend analysis — just like TurboTax's history feature.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBackfill(true)}
+                data-testid="button-add-prior-years"
+                className="shrink-0"
+              >
+                <DatabaseBackup className="h-4 w-4 mr-1.5" /> Add Prior Years
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* All Years Table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <History className="h-4 w-4 text-primary" /> All Returns
-          </CardTitle>
-          <CardDescription>Click a year to switch to it, or edit its filing status and notes.</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <History className="h-4 w-4 text-primary" /> All Returns
+              </CardTitle>
+              <CardDescription>Click a year to switch to it, or edit its filing status and notes.</CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowBackfill(true)}
+              data-testid="button-add-prior-years-header"
+              className="gap-1.5 text-muted-foreground hover:text-foreground"
+            >
+              <DatabaseBackup className="h-3.5 w-3.5" /> Add Prior Years
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -351,6 +394,9 @@ export default function TaxHistory({ activeProfileId, onSwitchYear }: { activePr
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Backfill Wizard */}
+      <BackfillWizard open={showBackfill} onClose={() => setShowBackfill(false)} />
 
       {/* Rollover Confirm Dialog */}
       <Dialog open={rolloverTarget !== null} onOpenChange={open => !open && setRolloverTarget(null)}>
