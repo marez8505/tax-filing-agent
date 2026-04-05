@@ -30,6 +30,11 @@ export const taxProfiles = sqliteTable("tax_profiles", {
   bankAccount: text("bank_account").default(""),
   accountType: text("account_type").default("checking"),
   createdAt: text("created_at").default(""),
+  // Year-over-year tracking
+  status: text("status").default("in_progress"), // in_progress | filed | accepted | amended
+  notes: text("notes").default(""),
+  filedDate: text("filed_date").default(""),
+  confirmationNumber: text("confirmation_number").default(""),
 });
 
 // Income entries

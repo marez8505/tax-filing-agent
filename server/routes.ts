@@ -119,6 +119,108 @@ export async function registerRoutes(
     res.json({ deleted: true });
   });
 
+  // ========== YEAR ROLLOVER (start new tax year from prior year) ==========
+  app.post("/api/profiles/:id/rollover", (req, res) => {
+    const sourceProfile = storage.getProfile(parseInt(req.params.id));
+    if (!sourceProfile) return res.status(404).json({ error: "Source profile not found" });
+
+    const newYear = sourceProfile.taxYear + 1;
+    const existing = storage.getProfileByYear(newYear);
+    if (existing) return res.status(409).json({ error: `A ${newYear} return already exists`, profileId: existing.id });
+
+    // Roll over personal info, address, bank — NOT income/deductions (those are year-specific)
+    const newProfile = storage.createProfile({
+      taxYear: newYear,
+      filingStatus: sourceProfile.filingStatus,
+      firstName1: sourceProfile.firstName1,
+      lastName1: sourceProfile.lastName1,
+      ssn1: sourceProfile.ssn1,
+      dob1: sourceProfile.dob1,
+      occupation1: sourceProfile.occupation1,
+      firstName2: sourceProfile.firstName2,
+      lastName2: sourceProfile.lastName2,
+      ssn2: sourceProfile.ssn2,
+      dob2: sourceProfile.dob2,
+      occupation2: sourceProfile.occupation2,
+      street: sourceProfile.street,
+      apt: sourceProfile.apt,
+      city: sourceProfile.city,
+      state: sourceProfile.state,
+      zip: sourceProfile.zip,
+      bankRouting: sourceProfile.bankRouting,
+      bankAccount: sourceProfile.bankAccount,
+      accountType: sourceProfile.accountType,
+      status: "in_progress",
+      notes: "",
+      filedDate: "",
+      confirmationNumber: "",
+      createdAt: new Date().toISOString(),
+    });
+
+    // Roll over dependents
+    const sourceDeps = storage.getDependentsByProfile(sourceProfile.id);
+    for (const dep of sourceDeps) {
+      storage.createDependent({
+        profileId: newProfile.id,
+        firstName: dep.firstName,
+        lastName: dep.lastName,
+        ssn: dep.ssn,
+        relationship: dep.relationship,
+        dob: dep.dob,
+        monthsLived: dep.monthsLived,
+      });
+    }
+
+    initializeTaxCode(newYear);
+    res.status(201).json({ profile: newProfile, depsRolledOver: sourceDeps.length });
+  });
+
+  // ========== HISTORY (all years summary) ==========
+  app.get("/api/history", (req, res) => {
+    const profiles = storage.getAllProfiles();
+    const history = profiles.map(p => {
+      try {
+        const calc = calculateTax(p.id, p.taxYear, p.filingStatus);
+        return {
+          id: p.id,
+          taxYear: p.taxYear,
+          filingStatus: p.filingStatus,
+          status: p.status || "in_progress",
+          notes: p.notes || "",
+          filedDate: p.filedDate || "",
+          confirmationNumber: p.confirmationNumber || "",
+          grossIncome: calc.grossIncome,
+          agi: calc.agi,
+          taxableIncome: calc.taxableIncome,
+          totalTax: calc.totalTax,
+          refundOrOwed: calc.refundOrOwed,
+          isRefund: calc.isRefund,
+          effectiveRate: calc.effectiveRate,
+          marginalRate: calc.marginalRate,
+          totalFederalWithheld: calc.totalFederalWithheld,
+          deductionUsed: calc.deductionUsed,
+          deductionAmount: calc.deductionAmount,
+          totalCredits: calc.totalCredits,
+          firstName1: p.firstName1,
+          lastName1: p.lastName1,
+        };
+      } catch {
+        return { id: p.id, taxYear: p.taxYear, filingStatus: p.filingStatus, status: p.status || "in_progress", grossIncome: 0, agi: 0, taxableIncome: 0, totalTax: 0, refundOrOwed: 0, isRefund: true, effectiveRate: 0, marginalRate: 0, totalFederalWithheld: 0, deductionUsed: "standard", deductionAmount: 0, totalCredits: 0, firstName1: p.firstName1, lastName1: p.lastName1 };
+      }
+    });
+    // Sort by year descending
+    history.sort((a, b) => b.taxYear - a.taxYear);
+    res.json(history);
+  });
+
+  // Update return status / notes
+  app.patch("/api/profiles/:id/status", (req, res) => {
+    const { status, notes, filedDate, confirmationNumber } = req.body;
+    const updated = storage.updateProfile(parseInt(req.params.id), { status, notes, filedDate, confirmationNumber });
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  });
+
   // ========== TAX CALCULATION ==========
   app.get("/api/profiles/:id/calculate", (req, res) => {
     const profile = storage.getProfile(parseInt(req.params.id));
